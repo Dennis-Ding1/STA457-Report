@@ -1,0 +1,104 @@
+---
+title: "data_clean"
+output: html_document
+---
+```{r}
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(xgboost)
+library(caret)
+library(slider)
+```
+
+```{r}
+### Load Cocoa Price Data
+cocoa_prices <- read.csv("Daily Prices_ICCO.csv", stringsAsFactors = FALSE)
+cocoa_prices$Date <- as.Date(cocoa_prices$Date, format='%d/%m/%Y')
+cocoa_prices$Price <- as.numeric(gsub(",", "", cocoa_prices$ICCO.daily.price..US..tonne.))
+cocoa_prices <- cocoa_prices %>% dplyr::select(Date, Price) %>% arrange(Date)
+
+### Load Ghana Weather Data
+ghana_weather <- read.csv("Ghana_data.csv", stringsAsFactors = FALSE)
+ghana_weather$DATE <- as.Date(ghana_weather$DATE)
+ghana_weather <- ghana_weather %>%
+  group_by(DATE) %>%
+  summarise(across(c(PRCP, TAVG, TMAX, TMIN), mean, na.rm = TRUE))
+
+ghana_weather$PRCP[is.na(ghana_weather$PRCP)] <- 0
+
+ghana_weather <- ghana_weather[, c("DATE", "PRCP", "TAVG")]
+
+## exchage rate
+usd <- read_csv("USD-Ghana.csv")
+usd_clean <- usd %>%
+  rename(MidRate = `Mid Rate`) %>%
+  mutate(
+    Date = dmy(Date),
+    MidRate = as.numeric(MidRate)
+  ) |> 
+  dplyr::select(Date, MidRate)
+
+usd_clean$MidRate <- ifelse(usd_clean$MidRate > 1000, usd_clean$MidRate / 10000, usd_clean$MidRate)
+usd_clean <- usd_clean[usd_clean$MidRate != 0, ]
+
+
+### Merge and Clean Data
+cocoa_data <- left_join(cocoa_prices, ghana_weather, by = c("Date" = "DATE")) %>%
+  mutate(log_price = log(Price)) |> drop_na()
+
+cocoa_data <- left_join(cocoa_data, usd_clean, by = "Date") %>% drop_na()
+
+cocoa_data <- cocoa_data %>%
+  mutate(YearMonth = floor_date(Date, unit = "month"))
+
+monthly_cocoa_data <- cocoa_data %>%
+  group_by(YearMonth) %>%
+  summarise(
+    Monthly_Price    = mean(Price, na.rm = TRUE),
+    Monthly_MidRate  = mean(MidRate, na.rm = TRUE),
+    Monthly_PRCP     = mean(PRCP, na.rm = TRUE),
+    Monthly_TAVG     = mean(TAVG, na.rm = TRUE),
+    Monthly_log_Price     = mean(log_price, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+## add production
+production_df <- read.csv("daily_cocoa_production.csv")
+production_df$Date <- as.Date(production_df$Date)
+
+# forecast 1 year production
+yearly_prod <- production_df %>%
+  mutate(Year = year(Date)) %>%
+  group_by(Year) %>%
+  summarise(Yearly_Production = sum(Daily_Production, na.rm = TRUE)) %>%
+  arrange(Year)
+
+prod_ts <- ts(yearly_prod$Yearly_Production, start = as.numeric(min(yearly_prod$Year)), frequency = 1)
+prod_model <- auto.arima(prod_ts)
+prod_forecast <- forecast(prod_model, h = 1)
+
+next_year <- max(yearly_prod$Year) + 1
+next_prod <- as.numeric(prod_forecast$mean)
+
+# Add to dataset
+yearly_prod <- yearly_prod %>%
+  bind_rows(data.frame(Year = next_year, Yearly_Production = next_prod))
+
+monthly_production <- yearly_prod %>%
+  mutate(Monthly_Production = Yearly_Production / 12) %>%
+  tidyr::uncount(12) %>%  # Repeat each row 12 times
+  group_by(Year) %>%
+  mutate(Month = 1:12) %>%
+  ungroup() %>%
+  mutate(YearMonth = as.Date(paste(Year, Month, "01", sep = "-")))
+
+final_df <- left_join(monthly_cocoa_data, monthly_production, by = "YearMonth") |> drop_na()
+
+final_df <- final_df[, c("YearMonth", "Monthly_Price", "Monthly_log_Price", "Monthly_MidRate", "Monthly_PRCP", "Monthly_TAVG", "Monthly_Production")]
+
+write.csv(final_df, "cocoa_data.csv", row.names = FALSE)
+```

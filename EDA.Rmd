@@ -1,0 +1,76 @@
+---
+title: "EDA"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(xgboost)
+library(caret)
+library(slider)
+library(patchwork)
+```
+
+```{r}
+cocoa_data <- read.csv("cocoa_data.csv")
+cocoa_data$YearMonth <- as.Date(cocoa_data$YearMonth)
+```
+
+```{r}
+# Plot 1: MidRate
+p1 <- ggplot(cocoa_data, aes(x = YearMonth)) +
+  geom_line(aes(y = Monthly_MidRate), color = "steelblue") +
+  labs(title = "Monthly Exchange Rate (Monthly_MidRate)", y = "MidRate", x = "Date") +
+  theme_minimal()
+
+# Plot 2: PRCP
+p2 <- ggplot(cocoa_data, aes(x = YearMonth)) +
+  geom_line(aes(y = Monthly_PRCP), color = "darkgreen") +
+  labs(title = "Monthly Precipitation (Monthly_PRCP)", y = "Precipitation (mm)", x = "Date") +
+  theme_minimal()
+
+# Plot 3: TAVG
+p3 <- ggplot(cocoa_data, aes(x = YearMonth)) +
+  geom_line(aes(y = Monthly_TAVG), color = "tomato") +
+  labs(title = "Monthly Average Temperature (Monthly_TAVG)", y = "Monthly_Temperature (°F)", x = "Date") +
+  theme_minimal()
+
+# Plot 4: Production
+p4 <- ggplot(cocoa_data, aes(x = YearMonth)) +
+  geom_line(aes(y = Monthly_Production), color = "purple") +
+  labs(title = "Monthly Cocoa Production", y = "Production (Monthly_Production)", x = "Date") +
+  theme_minimal()
+
+# Combine plots with patchwork
+(p1 | p2) /
+(p3 | p4) +
+  plot_annotation(title = "Monthly Trends of Variables",
+                  theme = theme(plot.title = element_text(size = 16, face = "bold", hjust = 0.5)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
